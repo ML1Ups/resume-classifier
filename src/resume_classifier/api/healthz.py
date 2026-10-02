@@ -7,4 +7,4 @@ router = APIRouter(tags=["infrastructure"])
 
 @router.get("/healthz")
 async def healthz() -> HealthzResponse:
-    return HealthzResponse(status="ok")
+    return HealthzResponse(status="hello world")

@@ -6,7 +6,7 @@ Status = Literal["ok", "error"]
 
 
 class HealthzResponse(BaseModel):
-    status: Literal["ok"]
+    status: Literal["hello world"]
 
 
 class VersionResponse(BaseModel):

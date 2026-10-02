@@ -44,12 +44,12 @@ compose up -d --build --wait --wait-timeout 120 || fail "stack did not become he
 [[ $(compose exec -T app id -u) != 0 ]] || fail "app container runs as root"
 echo "OK   app container runs as non-root user"
 
-check /healthz 200 '"status":"ok"'
+check /healthz 200 '"status":"hello world"'
 check /api/v1/version 200 "\"version\":\"${version}\""
 check /api/v1/health 200 '"name":"postgres","status":"ok"'
 
 compose stop db >/dev/null
-check /healthz 200 '"status":"ok"'
+check /healthz 200 '"status":"hello world"'
 check /api/v1/health 503 '"name":"postgres","status":"error"'
 
 echo "Smoke test passed"
