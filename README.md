@@ -22,8 +22,8 @@
 ## Как проверить
 
 ```bash
-docker buildx imagetools inspect asebaie/elsebaie_denisov:0.1.1
-docker run --rm -p 8000:8000 -e POSTGRES_HOST=db -e POSTGRES_USER=u -e POSTGRES_PASSWORD=p -e POSTGRES_DB=d asebaie/elsebaie_denisov:0.1.1
+docker buildx imagetools inspect asebaie/resume-classifier:0.1.1
+docker run --rm -p 8000:8000 -e POSTGRES_HOST=db -e POSTGRES_USER=u -e POSTGRES_PASSWORD=p -e POSTGRES_DB=d asebaie/resume-classifier:0.1.1
 ```
 
 Первая команда показывает обе платформы. Вторая запускает сервис без БД: `/healthz` отвечает
