@@ -6,7 +6,7 @@
 
 CD на GitHub Actions: сначала целиком прогоняется CI, и только после его успеха образ
 собирается и публикуется в Docker Hub —
-[`asebaie/elsebaie_denisov`](https://hub.docker.com/r/asebaie/elsebaie_denisov).
+[`asebaie/resume-classifier`](https://hub.docker.com/r/asebaie/resume-classifier).
 
 | Событие | Теги образа |
 |---|---|
