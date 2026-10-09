@@ -1,6 +1,6 @@
 FROM python:3.13-slim AS builder
 
-ARG WITH_ML=0
+ARG UV_GROUPS="--group web"
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.19 /uv /bin/uv
 
@@ -13,21 +13,13 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    if [ "$WITH_ML" = "1" ]; then \
-      uv sync --locked --no-install-project --no-default-groups --group web --group ml; \
-    else \
-      uv sync --locked --no-install-project --no-default-groups --group web; \
-    fi
+    uv sync --locked --no-install-project --no-default-groups ${UV_GROUPS}
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ "$WITH_ML" = "1" ]; then \
-      uv sync --locked --no-default-groups --group web --group ml --no-editable; \
-    else \
-      uv sync --locked --no-default-groups --group web --no-editable; \
-    fi
+    uv sync --locked --no-default-groups ${UV_GROUPS} --no-editable
 
 
 FROM python:3.13-slim
@@ -38,8 +30,6 @@ RUN groupadd --system --gid 10001 app \
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
-COPY data /app/data
-RUN mkdir /app/results && chown app:app /app/results
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -10,19 +10,16 @@ dependencies = []
 web = [
     "asyncpg>=0.31.0",
     "fastapi>=0.141.1",
+    "mlflow-skinny>=3.10.0",
+    "pandas>=2.3.3",
     "pydantic-settings>=2.15.0",
+    "scikit-learn>=1.7.2",
     "structlog>=26.1.0",
     "uvicorn[standard]>=0.54.0",
-    "mlflow-skinny==3.10.0",
-    "scikit-learn==1.7.2",
-    "pandas==2.3.3",
-    "numpy==2.2.6",
 ]
 ml = [
-    "mlflow==3.10.0",
-    "matplotlib==3.10.8",
-    "psycopg2-binary==2.9.11",
-    "boto3>=1.40,<2",
+    "matplotlib>=3.10.8",
+    "mlflow>=3.10.0",
 ]
 dev = [
     "httpx>=0.28.1",
@@ -68,9 +65,7 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 "scripts/generate_demo_data.py" = ["RUF001", "S311"]
-"src/resume_classifier/ml/train.py" = ["T201"]
 "src/resume_classifier/ml/registry.py" = ["T201"]
-"scripts/integration_check.py" = ["T201", "S106"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

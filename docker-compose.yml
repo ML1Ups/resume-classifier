@@ -6,42 +6,41 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
-x-model-env: &model-env
-  MLFLOW_TRACKING_URI: http://mlflow:5000
-  MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-resume-classifier-hw3}
-  MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-resume-classifier}
-  MLFLOW_MODEL_ALIAS: ${MLFLOW_MODEL_ALIAS:-champion}
-
 services:
   app:
     build: .
     image: resume-classifier:local
     environment:
-      <<: *model-env
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-resume}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-resume-local-password}
-      POSTGRES_DB: ${POSTGRES_DB:-resume_classifier}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_JSON: ${LOG_JSON:-true}
-      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-2}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     ports:
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
       train:
         condition: service_completed_successfully
+    networks:
+      - backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     logging: *default-logging
 
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-resume}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-resume-local-password}
-      POSTGRES_DB: ${POSTGRES_DB:-resume_classifier}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -50,15 +49,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
-      retries: 15
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     logging: *default-logging
 
   mlflow-db:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: mlflow
-      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD:-mlflow-local-password}
+      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD is required}
       POSTGRES_DB: mlflow
     volumes:
       - mlflow-pgdata:/var/lib/postgresql/data
@@ -66,35 +73,34 @@ services:
       test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
       interval: 5s
       timeout: 3s
-      retries: 15
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     logging: *default-logging
 
   mlflow:
-    build:
-      context: .
-      dockerfile: docker/mlflow/Dockerfile
-    image: resume-classifier-mlflow:local
-    volumes:
-      - artifact-store:/mlartifacts
-    environment:
-      MLFLOW_BACKEND_STORE_URI: postgresql+psycopg2://mlflow:${MLFLOW_DB_PASSWORD:-mlflow-local-password}@mlflow-db:5432/mlflow
+    image: ghcr.io/mlflow/mlflow:v3.10.0-full
     command:
       - mlflow
       - server
-      - --host
-      - 0.0.0.0
-      - --port
-      - "5000"
-      - --workers
-      - "1"
+      - --host=0.0.0.0
+      - --port=5000
+      - --workers=1
+      - --backend-store-uri=postgresql://mlflow:${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD is required}@mlflow-db:5432/mlflow
+      - --artifacts-destination=/mlartifacts
       - --serve-artifacts
-      - --artifacts-destination
-      - /mlartifacts
-      - --allowed-hosts
-      - "localhost:*,127.0.0.1:*,mlflow:*"
+      - --allowed-hosts=localhost:*,127.0.0.1:*,mlflow:*
+    volumes:
+      - mlflow-artifacts:/mlartifacts
     ports:
-      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+      - "127.0.0.1:${MLFLOW_PORT:-5050}:5000"
     depends_on:
       mlflow-db:
         condition: service_healthy
@@ -104,31 +110,46 @@ services:
       timeout: 3s
       retries: 30
       start_period: 20s
+    networks:
+      - backend
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
     logging: *default-logging
 
   train:
     build:
       context: .
       args:
-        WITH_ML: "1"
+        UV_GROUPS: --group web --group ml
     image: resume-classifier-train:local
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
       - ./data:/input:ro
-    environment:
-      <<: *model-env
-      OMP_NUM_THREADS: "1"
-      OPENBLAS_NUM_THREADS: "1"
-    command: ["python", "-m", "resume_classifier.ml.train", "--data", "${TRAIN_DATA_PATH:-/input/cv_target.csv}", "--output", "/app/results"]
+    command: ["python", "-m", "resume_classifier.ml.train", "--data", "${TRAIN_DATA_PATH:-/input/cv_target.csv}"]
     healthcheck:
       disable: true
     depends_on:
       mlflow:
         condition: service_healthy
+    networks:
+      - backend
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     logging: *default-logging
 
 volumes:
   pgdata:
   mlflow-pgdata:
-  artifact-store:
+  mlflow-artifacts:
+
+networks:
+  backend:
