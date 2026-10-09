@@ -22,6 +22,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      train:
+        condition: service_completed_successfully
     networks:
       - backend
     restart: unless-stopped
@@ -114,6 +116,32 @@ services:
       resources:
         limits:
           cpus: "1.0"
+          memory: 2G
+    logging: *default-logging
+
+  train:
+    build:
+      context: .
+      args:
+        UV_GROUPS: --group web --group ml
+    image: resume-classifier-train:local
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    volumes:
+      - ./data:/input:ro
+    command: ["python", "-m", "resume_classifier.ml.train", "--data", "${TRAIN_DATA_PATH:-/input/cv_target.csv}"]
+    healthcheck:
+      disable: true
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
           memory: 2G
     logging: *default-logging
 
