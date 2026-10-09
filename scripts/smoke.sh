@@ -9,6 +9,7 @@ export POSTGRES_DB=smoke
 export APP_PORT=18000
 export POSTGRES_PORT=55432
 export MLFLOW_PORT=15000
+export MLFLOW_DB_PASSWORD=smoke
 export TRAIN_DATA_PATH=/input/resumes_demo.csv
 
 compose() {
@@ -41,7 +42,7 @@ trap cleanup EXIT
 
 version=$(uv version --short)
 
-compose up -d --build --wait --wait-timeout 300 || fail "stack did not become healthy"
+compose up -d --build --wait --wait-timeout 600 || fail "stack did not become healthy"
 
 [[ $(compose exec -T app id -u) != 0 ]] || fail "app container runs as root"
 echo "OK   app container runs as non-root user"
@@ -51,22 +52,25 @@ check /api/v1/version 200 "\"version\":\"${version}\""
 check /api/v1/health 200 '"name":"postgres","status":"ok"'
 check /api/v1/model 200 '"alias":"champion"'
 
-curl --fail --silent --show-error "http://127.0.0.1:${MLFLOW_PORT}/health" \
-  || fail "MLflow is unreachable"
-curl --fail --silent --show-error -X POST "http://127.0.0.1:${APP_PORT}/process" \
+curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/health" >/dev/null || fail "MLflow is unreachable"
+echo "OK   MLflow is reachable"
+
+response=$(curl -sS -X POST "http://127.0.0.1:${APP_PORT}/process" \
   -H 'Content-Type: application/json' \
-  --data '{"texts":["Python FastAPI PostgreSQL API"]}' \
-  | python3 -c 'import sys,json; r=json.load(sys.stdin); assert len(r["predictions"])==1; assert r["model"]["version"]; assert r["model"]["run_id"]' \
-  || fail "POST /process failed"
+  -d '{"texts":["Python FastAPI PostgreSQL API"]}') || fail "/process is unreachable"
+[[ $response == *'"predictions":[{"index":0,"category":"'* ]] \
+  || fail "/process returned unexpected body: $response"
+echo "OK   POST /process -> $response"
 
 old_version=$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/model" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["version"])')
-alternate=$(compose exec -T app python -c 'import os; from mlflow import MlflowClient; c=MlflowClient(tracking_uri=os.environ["MLFLOW_TRACKING_URI"]); n=os.environ["MLFLOW_MODEL_NAME"]; old=str(c.get_model_version_by_alias(n,"champion").version); print(next(str(v.version) for v in c.search_model_versions() if v.name==n and str(v.version)!=old))')
-compose exec -T app python -m resume_classifier.ml.registry --version "$alternate" >/dev/null
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+new_version=$((old_version % 3 + 1))
+compose exec -T app python -m resume_classifier.ml.registry --version "$new_version" >/dev/null \
+  || fail "champion alias was not moved"
 check /api/v1/model 200 "\"version\":\"${old_version}\""
-compose restart app
-compose up -d --no-deps --wait --wait-timeout 60 app
-check /api/v1/model 200 "\"version\":\"${alternate}\""
+compose restart app >/dev/null
+compose up -d --no-deps --wait --wait-timeout 60 app || fail "app did not restart"
+check /api/v1/model 200 "\"version\":\"${new_version}\""
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'

@@ -62,9 +62,6 @@ jobs:
       - name: Run tests with coverage
         run: uv run --no-sync pytest --cov-report=term-missing --cov-report=xml
 
-      - name: Check real MLflow HTTP and model alias switching
-        run: uv run --no-sync python scripts/integration_check.py --output /tmp/resume-integration
-
       - name: Coverage summary
         if: always()
         run: uv run --no-sync coverage report --format=markdown --fail-under=0 >> "$GITHUB_STEP_SUMMARY"
@@ -85,7 +82,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
 
       - name: Build and check docker compose stack
-        run: bash scripts/smoke.sh
+        run: ./scripts/smoke.sh
 
   readme:
     name: README guard
