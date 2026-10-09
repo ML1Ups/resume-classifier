@@ -6,9 +6,13 @@ from contextlib import asynccontextmanager
 import pytest
 import structlog
 from httpx import ASGITransport, AsyncClient
+from sklearn.dummy import DummyClassifier
 
+from resume_classifier import main
 from resume_classifier.config import Settings
 from resume_classifier.main import create_app
+from resume_classifier.model import LoadedModel
+from resume_classifier.schemas import ModelInfo
 
 
 @asynccontextmanager
@@ -25,6 +29,29 @@ async def running_client(settings: Settings) -> AsyncIterator[AsyncClient]:
 @pytest.fixture
 def settings() -> Settings:
     return Settings()
+
+
+@pytest.fixture
+def model() -> LoadedModel:
+    pipeline = DummyClassifier(strategy="constant", constant="backend").fit([[0]], ["backend"])
+    info = ModelInfo(
+        name="resume-classifier",
+        alias="champion",
+        version="1",
+        run_id="unit-run",
+        model_uri="models:/resume-classifier/1",
+    )
+    return LoadedModel(pipeline=pipeline, info=info)
+
+
+@pytest.fixture(autouse=True)
+def loaded_model(monkeypatch: pytest.MonkeyPatch, model: LoadedModel) -> None:
+    monkeypatch.setattr(main, "load_model", lambda settings: model)
+
+
+@pytest.fixture
+def missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "load_model", lambda settings: None)
 
 
 @pytest.fixture

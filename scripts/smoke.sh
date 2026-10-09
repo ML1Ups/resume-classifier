@@ -50,13 +50,27 @@ echo "OK   app container runs as non-root user"
 check /healthz 200 '"status":"ok"'
 check /api/v1/version 200 "\"version\":\"${version}\""
 check /api/v1/health 200 '"name":"postgres","status":"ok"'
+check /api/v1/model 200 '"alias":"champion"'
 
 curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/health" >/dev/null || fail "MLflow is unreachable"
 echo "OK   MLflow is reachable"
 
-curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/api/2.0/mlflow/registered-models/alias?name=resume-classifier&alias=champion" \
-  >/dev/null || fail "champion alias is not set"
-echo "OK   champion alias is set"
+response=$(curl -sS -X POST "http://127.0.0.1:${APP_PORT}/process" \
+  -H 'Content-Type: application/json' \
+  -d '{"texts":["Python FastAPI PostgreSQL API"]}') || fail "/process is unreachable"
+[[ $response == *'"predictions":[{"index":0,"category":"'* ]] \
+  || fail "/process returned unexpected body: $response"
+echo "OK   POST /process -> $response"
+
+old_version=$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/model" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+new_version=$((old_version % 3 + 1))
+compose exec -T app python -m resume_classifier.ml.registry --version "$new_version" >/dev/null \
+  || fail "champion alias was not moved"
+check /api/v1/model 200 "\"version\":\"${old_version}\""
+compose restart app >/dev/null
+compose up -d --no-deps --wait --wait-timeout 60 app || fail "app did not restart"
+check /api/v1/model 200 "\"version\":\"${new_version}\""
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'
