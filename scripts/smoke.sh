@@ -10,6 +10,7 @@ export APP_PORT=18000
 export POSTGRES_PORT=55432
 export MLFLOW_PORT=15000
 export MLFLOW_DB_PASSWORD=smoke
+export TRAIN_DATA_PATH=/input/resumes_demo.csv
 
 compose() {
   docker compose --project-name resume-classifier-smoke "$@"
@@ -52,6 +53,10 @@ check /api/v1/health 200 '"name":"postgres","status":"ok"'
 
 curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/health" >/dev/null || fail "MLflow is unreachable"
 echo "OK   MLflow is reachable"
+
+curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/api/2.0/mlflow/registered-models/alias?name=resume-classifier&alias=champion" \
+  >/dev/null || fail "champion alias is not set"
+echo "OK   champion alias is set"
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'
