@@ -18,5 +18,10 @@ htmlcov/
 .vscode/
 .DS_Store
 
-data/
+data/*
+!data/resumes_demo.csv
+!data/README.md
 models/
+mlruns/
+mlartifacts/
+*.db
