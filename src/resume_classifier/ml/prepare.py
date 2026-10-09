@@ -1,5 +1,3 @@
-"""Convert the supplied structured CV export to labeled text without target leakage."""
-
 import ast
 import json
 import re
@@ -76,7 +74,6 @@ def build_text(record: dict) -> str:
 
 
 def connected_groups(candidates: list[str], texts: list[str]) -> list[str]:
-    """Union records sharing a person OR an exact normalized text, transitively."""
     parent = list(range(len(texts)))
 
     def find(index: int) -> int:
@@ -93,7 +90,6 @@ def connected_groups(candidates: list[str], texts: list[str]) -> list[str]:
                 parent[max(root, previous)] = min(root, previous)
             else:
                 owners[key] = index
-    # These values are group identities, never predictor features or original candidate IDs.
     return [sha256(f"group-{find(i)}".encode()).hexdigest()[:16] for i in range(len(texts))]
 
 
