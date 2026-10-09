@@ -1,6 +1,6 @@
 [project]
 name = "resume-classifier"
-version = "0.1.1"
+version = "0.2.0"
 description = "MLOps-сервис классификации резюме соискателей по профессиональным направлениям"
 readme = "README.md"
 requires-python = ">=3.13"
