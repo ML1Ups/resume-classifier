@@ -1,5 +1,3 @@
-"""Generate clearly marked synthetic resumes. No personal records are used."""
-
 import csv
 import random
 from pathlib import Path
@@ -202,7 +200,7 @@ def main() -> None:
     output = Path(__file__).resolve().parents[1] / "data" / "resumes_demo.csv"
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["text", "category"])
+        writer = csv.DictWriter(stream, fieldnames=["text", "category"], lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
