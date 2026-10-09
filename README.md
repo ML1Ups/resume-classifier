@@ -19,7 +19,8 @@ MLOps-система классификации резюме соискател�
 - **текстовые** — желаемая должность, описания обязанностей и достижений, профессиональные и
   гибкие навыки.
 
-Датасет содержит персональные данные и в репозитории не хранится.
+Датасет содержит персональные данные и в репозитории не хранится. Откуда его взять и как он
+готовится к обучению — в [`data/README.md`](data/README.md). В git лежит только учебный набор.
 
 ## План
 
@@ -43,6 +44,10 @@ MLOps-система классификации резюме соискател�
 | [`feature/docker-ci`](../../tree/feature/docker-ci) | Docker, docker compose с PostgreSQL, pre-commit, CI | [#2](../../pull/2) |
 | [`feature/cd`](../../tree/feature/cd) | CD: публикация версионированного образа в Docker Hub | [#3](../../pull/3) |
 | [`feature/multiarch`](../../tree/feature/multiarch) | сборка образа под amd64 и arm64, релиз 0.1.1 | [#4](../../pull/4) |
+| [`feature/ml-data`](../../tree/feature/ml-data) | подготовка данных, разбиение на train / validation / test, учебный набор | [#17](../../pull/17) |
+| [`feature/mlflow-server`](../../tree/feature/mlflow-server) | MLflow Tracking Server с отдельными Backend Store и Artifact Store | [#18](../../pull/18) |
+| [`feature/ml-training`](../../tree/feature/ml-training) | EDA, эксперименты, метрики, реестр моделей и alias `champion` | [#19](../../pull/19) |
+| [`feature/process`](../../tree/feature/process) | загрузка модели из реестра, `POST /process`, релиз 0.2.0 | [#20](../../pull/20) |
 
 ## Как ведётся разработка
 
@@ -60,7 +65,11 @@ MLOps-система классификации резюме соискател�
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+TRAIN_DATA_PATH=/input/resumes_demo.csv docker compose up -d --build
 ```
 
-Документация API — http://localhost:8000/docs.
+Команда поднимает сервис, PostgreSQL и MLflow, обучает модели на учебном наборе и загружает
+лучшую в сервис. Для обучения на настоящих данных файл нужно положить в `data/cv_target.csv`
+и запустить `docker compose up -d --build` без `TRAIN_DATA_PATH`.
+
+Документация API — http://localhost:8000/docs, интерфейс MLflow — http://127.0.0.1:5050.
