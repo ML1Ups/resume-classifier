@@ -8,6 +8,8 @@ export POSTGRES_PASSWORD=smoke
 export POSTGRES_DB=smoke
 export APP_PORT=18000
 export POSTGRES_PORT=55432
+export MLFLOW_PORT=15000
+export MLFLOW_DB_PASSWORD=smoke
 
 compose() {
   docker compose --project-name resume-classifier-smoke "$@"
@@ -39,7 +41,7 @@ trap cleanup EXIT
 
 version=$(uv version --short)
 
-compose up -d --build --wait --wait-timeout 120 || fail "stack did not become healthy"
+compose up -d --build --wait --wait-timeout 600 || fail "stack did not become healthy"
 
 [[ $(compose exec -T app id -u) != 0 ]] || fail "app container runs as root"
 echo "OK   app container runs as non-root user"
@@ -47,6 +49,9 @@ echo "OK   app container runs as non-root user"
 check /healthz 200 '"status":"ok"'
 check /api/v1/version 200 "\"version\":\"${version}\""
 check /api/v1/health 200 '"name":"postgres","status":"ok"'
+
+curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/health" >/dev/null || fail "MLflow is unreachable"
+echo "OK   MLflow is reachable"
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'
