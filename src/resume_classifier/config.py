@@ -22,6 +22,10 @@ class Settings(BaseSettings):
 
     health_check_timeout_seconds: float = Field(default=2.0, gt=0)
 
+    mlflow_tracking_uri: str = "http://127.0.0.1:5050"
+    mlflow_model_name: str = "resume-classifier"
+    mlflow_model_alias: str = "champion"
+
 
 @lru_cache
 def get_settings() -> Settings:
