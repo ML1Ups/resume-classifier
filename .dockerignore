@@ -3,4 +3,9 @@
 !uv.lock
 !README.md
 !src
+!data
+data/*
+!data/resumes_demo.csv
+!data/README.md
+!docker
 **/__pycache__
