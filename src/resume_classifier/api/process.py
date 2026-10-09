@@ -1,24 +1,27 @@
-import structlog
-from fastapi import APIRouter, HTTPException, Request, status
+from typing import Annotated
 
-from resume_classifier.schemas import ModelInfo, ProcessRequest, ProcessResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from starlette.concurrency import run_in_threadpool
+
+from resume_classifier.model import LoadedModel, predict
+from resume_classifier.schemas import ProcessRequest, ProcessResponse
 
 router = APIRouter(tags=["inference"])
-logger = structlog.get_logger(__name__)
+
+MODEL_NOT_LOADED = {status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Model is not loaded"}}
 
 
-@router.post("/process")
-async def process(payload: ProcessRequest, request: Request) -> ProcessResponse:
-    try:
-        return await request.app.state.model_service.predict(payload.texts)
-    except Exception as exc:
-        logger.exception("inference_failed", error_type=type(exc).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Model inference failed",
-        ) from exc
+def loaded_model(request: Request) -> LoadedModel:
+    model: LoadedModel | None = request.app.state.model
+    if model is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model is not loaded")
+    return model
 
 
-@router.get("/api/v1/model")
-async def model_info(request: Request) -> ModelInfo:
-    return request.app.state.model_service.info
+@router.post("/process", responses=MODEL_NOT_LOADED)
+async def process(
+    payload: ProcessRequest,
+    model: Annotated[LoadedModel, Depends(loaded_model)],
+) -> ProcessResponse:
+    predictions = await run_in_threadpool(predict, model, payload.texts)
+    return ProcessResponse(predictions=predictions, model=model.info)

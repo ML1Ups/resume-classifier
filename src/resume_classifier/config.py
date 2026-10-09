@@ -22,11 +22,9 @@ class Settings(BaseSettings):
 
     health_check_timeout_seconds: float = Field(default=2.0, gt=0)
 
-    mlflow_tracking_uri: str = "http://127.0.0.1:5000"
-    mlflow_experiment_name: str = "resume-classifier-hw3"
+    mlflow_tracking_uri: str = "http://127.0.0.1:5050"
     mlflow_model_name: str = "resume-classifier"
     mlflow_model_alias: str = "champion"
-    inference_max_concurrency: int = Field(default=2, ge=1, le=32)
 
 
 @lru_cache
