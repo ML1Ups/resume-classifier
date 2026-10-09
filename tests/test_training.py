@@ -12,7 +12,7 @@ from resume_classifier.ml.train import run_training
 DEMO = Path(__file__).resolve().parents[1] / "data/resumes_demo.csv"
 
 
-def test_training_tracks_lineage_logs_models_and_selects_on_validation(tmp_path):
+def test_training_tracks_lineage_logs_models_and_selects_on_validation(tmp_path: Path) -> None:
     uri = f"sqlite:///{tmp_path / 'tracking.db'}"
     previous_tracking = mlflow.get_tracking_uri()
     previous_registry = mlflow.get_registry_uri()
@@ -20,7 +20,7 @@ def test_training_tracks_lineage_logs_models_and_selects_on_validation(tmp_path)
     mlflow.set_registry_uri(uri)
     mlflow.create_experiment("training-test", artifact_location=(tmp_path / "artifacts").as_uri())
     try:
-        summary = run_training(DEMO, uri, experiment="training-test", output=tmp_path / "results")
+        summary = run_training(DEMO, uri, experiment="training-test")
         client = MlflowClient(tracking_uri=uri)
         experiment = client.get_experiment_by_name("training-test")
         runs = client.search_runs([experiment.experiment_id])
@@ -45,16 +45,23 @@ def test_training_tracks_lineage_logs_models_and_selects_on_validation(tmp_path)
         provenance = json.loads(Path(path).read_text())
         assert provenance["file_sha256"] == split.file_sha256
         assert provenance["parts"]["train"]["rows"] == 144
-        assert (tmp_path / "results/comparison.csv").is_file()
+        comparison = client.download_artifacts(best["run_id"], "comparison/comparison.csv")
+        assert Path(comparison).is_file()
     finally:
         mlflow.set_tracking_uri(previous_tracking)
         mlflow.set_registry_uri(previous_registry)
 
 
-def test_training_cli_passes_explicit_arguments(monkeypatch, tmp_path):
+@pytest.mark.usefixtures("restore_logging")
+def test_training_cli_passes_explicit_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     import resume_classifier.ml.train as module
 
-    runner = Mock(return_value={"ok": True})
+    runner = Mock(
+        return_value={
+            "champion": {"name": "logreg_words", "version": "1", "f1_macro": 1.0},
+            "test_metrics": {"f1_macro": 1.0},
+        }
+    )
     monkeypatch.setattr(module, "run_training", runner)
     monkeypatch.setattr(
         "sys.argv",
@@ -62,8 +69,6 @@ def test_training_cli_passes_explicit_arguments(monkeypatch, tmp_path):
             "train",
             "--data",
             str(DEMO),
-            "--output",
-            str(tmp_path),
             "--tracking-uri",
             "http://localhost:5000",
         ],
@@ -74,7 +79,10 @@ def test_training_cli_passes_explicit_arguments(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("version", [None, "2"])
-def test_registry_cli_inspects_and_moves_alias(monkeypatch, version):
+def test_registry_cli_inspects_and_moves_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    version: str | None,
+) -> None:
     import resume_classifier.ml.registry as module
 
     client = Mock()

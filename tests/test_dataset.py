@@ -8,7 +8,7 @@ from resume_classifier.ml.dataset import lineage, load_and_split
 DEMO = Path(__file__).resolve().parents[1] / "data/resumes_demo.csv"
 
 
-def test_splits_are_disjoint_stratified_and_reproducible():
+def test_splits_are_disjoint_stratified_and_reproducible() -> None:
     splits = load_and_split(DEMO)
     repeat = load_and_split(DEMO)
     assert (len(splits.train), len(splits.validation), len(splits.test)) == (144, 48, 48)
@@ -37,7 +37,11 @@ def test_splits_are_disjoint_stratified_and_reproducible():
         (pd.DataFrame({"text": ["one"], "category": ["a"]}), "at least"),
     ],
 )
-def test_invalid_datasets_fail_before_training(tmp_path, frame, message):
+def test_invalid_datasets_fail_before_training(
+    tmp_path: Path,
+    frame: pd.DataFrame,
+    message: str,
+) -> None:
     path = tmp_path / "data.csv"
     frame.to_csv(path, index=False)
     with pytest.raises(ValueError, match=message):

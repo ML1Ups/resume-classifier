@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -25,11 +26,14 @@ from resume_classifier.ml.prepare import (
         ('{"a":1}', [{"a": 1}]),
     ],
 )
-def test_nested_parser_handles_json_and_python_literals_without_eval(value, expected):
+def test_nested_parser_handles_json_and_python_literals_without_eval(
+    value: str,
+    expected: list[dict[str, object]],
+) -> None:
     assert parse_nested(value) == expected
 
 
-def test_target_is_distinct_professional_sphere_not_profession_or_position():
+def test_target_is_distinct_professional_sphere_not_profession_or_position() -> None:
     value = (
         "[{'codeProfessionalSphere': 'Sales', 'codeProfession': '123'}, "
         "{'codeProfessionalSphere': 'Sales'}]"
@@ -38,7 +42,7 @@ def test_target_is_distinct_professional_sphere_not_profession_or_position():
     assert professional_spheres('[{"codeProfession":"123"}]') == []
 
 
-def test_feature_extraction_excludes_target_identifiers_and_company_names():
+def test_feature_extraction_excludes_target_identifiers_and_company_names() -> None:
     record = {
         "positionName": "Developer",
         "professionList": "TARGET_SENTINEL",
@@ -64,7 +68,7 @@ def test_feature_extraction_excludes_target_identifiers_and_company_names():
     assert len(build_text({"positionName": "x" * 30000})) == 20000
 
 
-def test_groups_connect_same_candidate_and_duplicate_text_transitively():
+def test_groups_connect_same_candidate_and_duplicate_text_transitively() -> None:
     groups = connected_groups(["a", "a", "b", "c"], ["first", " second ", "SECOND", "unrelated"])
     assert groups[0] == groups[1] == groups[2]
     assert groups[3] != groups[0]
@@ -87,7 +91,7 @@ def raw_frame() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def test_cv_export_has_group_split_and_complete_lineage(tmp_path):
+def test_cv_export_has_group_split_and_complete_lineage(tmp_path: Path) -> None:
     path = tmp_path / "cv.csv"
     raw_frame().to_csv(path, index=False)
     splits = load_and_split(path)
@@ -100,7 +104,7 @@ def test_cv_export_has_group_split_and_complete_lineage(tmp_path):
     assert splits.preparation["prepared_rows"] == 60
 
 
-def test_preparation_reports_dropped_rows_and_rare_classes():
+def test_preparation_reports_dropped_rows_and_rare_classes() -> None:
     raw = raw_frame()
     rare = raw.iloc[:1].copy()
     rare["id"] = "rare"
@@ -116,7 +120,7 @@ def test_preparation_reports_dropped_rows_and_rare_classes():
     assert report["unsupported_classes"] == {"Rare": 1}
 
 
-def test_preparation_rejects_wrong_schema_or_empty_export():
+def test_preparation_rejects_wrong_schema_or_empty_export() -> None:
     with pytest.raises(ValueError, match="must have"):
         prepare_cv_export(pd.DataFrame({"x": ["x"]}))
     frame = raw_frame()

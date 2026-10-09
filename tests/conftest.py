@@ -2,63 +2,17 @@ import logging
 import socket
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
 
 import pytest
 import structlog
 from httpx import ASGITransport, AsyncClient
+from sklearn.dummy import DummyClassifier
 
+from resume_classifier import main
 from resume_classifier.config import Settings
 from resume_classifier.main import create_app
-from resume_classifier.model import ModelService
+from resume_classifier.model import LoadedModel
 from resume_classifier.schemas import ModelInfo
-
-
-@pytest.fixture(autouse=True)
-def external_services(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unit tests are offline; real DB and MLflow are checked by smoke tests."""
-    from resume_classifier import main
-
-    for name, value in {
-        "POSTGRES_HOST": "localhost",
-        "POSTGRES_USER": "test",
-        "POSTGRES_PASSWORD": "test",
-        "POSTGRES_DB": "test",
-    }.items():
-        monkeypatch.setenv(name, value)
-
-    async def fake_pool(settings: Settings):
-        @asynccontextmanager
-        async def acquire():
-            if settings.postgres_host == "127.0.0.1":
-                raise ConnectionRefusedError
-            yield type("Connection", (), {"fetchval": AsyncMock(return_value="17.0")})()
-
-        return type("Pool", (), {"acquire": staticmethod(acquire), "close": AsyncMock()})()
-
-    import asyncio
-
-    from sklearn.dummy import DummyClassifier
-
-    model = DummyClassifier(strategy="constant", constant="backend")
-    model.fit([[0]], ["backend"])
-    info = ModelInfo(
-        name="resume-classifier",
-        alias="champion",
-        version="1",
-        run_id="unit-run",
-        model_uri="models:/resume-classifier/1",
-    )
-    monkeypatch.setattr(main, "create_pool", fake_pool)
-    monkeypatch.setattr(
-        ModelService,
-        "load",
-        lambda settings: ModelService(
-            model=model,
-            info=info,
-            limiter=asyncio.Semaphore(2),
-        ),
-    )
 
 
 @asynccontextmanager
@@ -75,6 +29,29 @@ async def running_client(settings: Settings) -> AsyncIterator[AsyncClient]:
 @pytest.fixture
 def settings() -> Settings:
     return Settings()
+
+
+@pytest.fixture
+def model() -> LoadedModel:
+    pipeline = DummyClassifier(strategy="constant", constant="backend").fit([[0]], ["backend"])
+    info = ModelInfo(
+        name="resume-classifier",
+        alias="champion",
+        version="1",
+        run_id="unit-run",
+        model_uri="models:/resume-classifier/1",
+    )
+    return LoadedModel(pipeline=pipeline, info=info)
+
+
+@pytest.fixture(autouse=True)
+def loaded_model(monkeypatch: pytest.MonkeyPatch, model: LoadedModel) -> None:
+    monkeypatch.setattr(main, "load_model", lambda settings: model)
+
+
+@pytest.fixture
+def missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "load_model", lambda settings: None)
 
 
 @pytest.fixture
