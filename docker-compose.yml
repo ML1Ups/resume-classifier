@@ -128,6 +128,9 @@ services:
     image: resume-classifier-train:local
     environment:
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      TRAIN_ALIAS: ${TRAIN_ALIAS:-champion}
+      TRAIN_SPLIT_DIR: /input/evaluation
+      TRAIN_DATASET_VERSION: ${TRAIN_DATASET_VERSION:-}
     volumes:
       - ./data:/input:ro
     command: ["python", "-m", "resume_classifier.ml.train", "--data", "${TRAIN_DATA_PATH:-/input/cv_target.csv}"]
