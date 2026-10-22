@@ -45,3 +45,23 @@ seed 42. В одну группу попадают все резюме одно�
 ```bash
 TRAIN_DATA_PATH=/input/resumes_demo.csv docker compose up -d --build
 ```
+
+
+### Версии для демонстрации API
+
+Из одного `cv_target.csv` создаются две воспроизводимые версии:
+
+```bash
+uv run python scripts/build_evaluation_datasets.py
+```
+
+В `data/evaluation/` появляются:
+
+- `v1_train.csv`, `v1_validation.csv`, `test_v1.csv`;
+- `v2_train.csv`, `v2_validation.csv`, `test_v2.csv`;
+- `full.csv`;
+- `manifest.json`.
+
+`v1` использует весь train split, а `v2` — стратифицированные 10% от того же train split.
+Validation и test между версиями совпадают. Поэтому сравнение `demo-v1` и `demo-v2` показывает
+влияние объёма обучающих данных, а не изменение тестовой выборки.

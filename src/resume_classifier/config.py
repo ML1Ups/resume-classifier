@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://127.0.0.1:5050"
     mlflow_model_name: str = "resume-classifier"
     mlflow_model_alias: str = "champion"
+    evaluation_data_dir: str = "/input/evaluation"
 
 
 @lru_cache

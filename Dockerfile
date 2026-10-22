@@ -17,6 +17,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+COPY scripts ./scripts
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-default-groups ${UV_GROUPS} --no-editable
@@ -30,6 +31,7 @@ RUN groupadd --system --gid 10001 app \
 WORKDIR /app
 
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/scripts /app/scripts
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

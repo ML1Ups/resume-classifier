@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
@@ -18,6 +19,7 @@ class DatasetSplits:
     source: str
     seed: int
     preparation: dict = field(default_factory=dict)
+    dataset_version: str = "source"
 
 
 def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> DatasetSplits:
@@ -74,6 +76,51 @@ def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> Dat
     )
 
 
+def load_versioned_split(directory: Path, version: str, seed: int = 42) -> DatasetSplits:
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    full = pd.read_csv(directory / "full.csv", dtype=str, keep_default_na=False)
+    train = pd.read_csv(directory / f"{version}_train.csv", dtype=str, keep_default_na=False)
+    validation = pd.read_csv(
+        directory / f"{version}_validation.csv",
+        dtype=str,
+        keep_default_na=False,
+    )
+    test = pd.read_csv(directory / f"test_{version}.csv", dtype=str, keep_default_na=False)
+    required = {"record_id", "text", "category"}
+    for name, frame in {
+        "full": full,
+        "train": train,
+        "validation": validation,
+        "test": test,
+    }.items():
+        if not required.issubset(frame.columns):
+            raise ValueError(f"{name} split must contain record_id, text and category columns")
+
+    return DatasetSplits(
+        full=full,
+        train=train.reset_index(drop=True),
+        validation=validation.reset_index(drop=True),
+        test=test.reset_index(drop=True),
+        file_sha256=manifest["source_sha256"],
+        source=manifest["source"],
+        seed=seed,
+        preparation={
+            **manifest["preparation"],
+            "dataset_version": version,
+            "base_split": manifest["base_split"],
+        },
+        dataset_version=version,
+    )
+
+
+def load_evaluation_test(directory: str, version: str | None) -> pd.DataFrame:
+    if version is None:
+        raise ValueError("Dataset version is required for evaluation")
+    path = Path(directory) / f"test_{version}.csv"
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+    return frame[["record_id", "text", "category"]]
+
+
 def split_groups(
     frame: pd.DataFrame, file_digest: str, source: str, seed: int, preparation: dict
 ) -> DatasetSplits:
@@ -115,12 +162,19 @@ def lineage(splits: DatasetSplits, digests: dict[str, str]) -> dict:
         "source": splits.source,
         "file_sha256": splits.file_sha256,
         "parent_dataset_digest": digests["full"],
+        "dataset_version": splits.dataset_version,
         "split": {
-            "strategy": "stratified_group" if "group_id" in splits.full else "stratified",
+            "strategy": splits.preparation.get(
+                "split_strategy",
+                "stratified_group" if "group_id" in splits.full else "stratified",
+            ),
             "seed": splits.seed,
-            "train_fraction": 0.6,
-            "validation_fraction": 0.2,
-            "test_fraction": 0.2,
+            "train_fraction": len(splits.train) / len(splits.full),
+            "validation_fraction": len(splits.validation) / len(splits.full),
+            "test_fraction": len(splits.test) / len(splits.full),
+            "base_train_fraction": 0.6,
+            "base_validation_fraction": 0.2,
+            "base_test_fraction": 0.2,
         },
         "preparation": splits.preparation,
         "parts": {

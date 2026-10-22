@@ -42,11 +42,48 @@ def test_load_model_returns_none_when_alias_is_missing(
     assert module.load_model(settings) is None
 
 
-async def test_startup_keeps_loaded_model_in_app_state(
+def test_load_models_loads_all_registry_aliases(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = Mock()
+    client.get_registered_model.return_value.aliases = {"demo-v1": "7", "demo-v2": "8"}
+    client.get_model_version_by_alias.side_effect = [
+        SimpleNamespace(
+            version="7",
+            run_id="run-7",
+            tags={
+                "candidate": "logreg_words",
+                "dataset.version": "v1",
+                "dataset.train_rows": "100",
+            },
+        ),
+        SimpleNamespace(
+            version="8",
+            run_id="run-8",
+            tags={"candidate": "svm_bigrams", "dataset.version": "v2", "dataset.train_rows": "10"},
+        ),
+    ]
+    client.get_run.return_value.data.metrics = {"validation_f1_macro": 0.8}
+    pipeline = Mock()
+    monkeypatch.setattr(module, "MlflowClient", Mock(return_value=client))
+    monkeypatch.setattr(module.mlflow.sklearn, "load_model", Mock(return_value=pipeline))
+
+    loaded = module.load_models(settings)
+
+    assert sorted(loaded) == ["demo-v1", "demo-v2"]
+    assert loaded["demo-v1"].info.dataset_version == "v1"
+    assert loaded["demo-v2"].info.candidate == "svm_bigrams"
+
+
+async def test_startup_keeps_loaded_models_in_app_state(
     settings: Settings,
     model: LoadedModel,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(module, "load_models", lambda settings: {"champion": model})
     app = create_app(settings)
 
     async with app.router.lifespan_context(app):
+        assert app.state.models == {"champion": model}
         assert app.state.model is model

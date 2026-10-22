@@ -3,4 +3,7 @@
 !uv.lock
 !README.md
 !src
+!src/**
+!scripts
+!scripts/**
 **/__pycache__

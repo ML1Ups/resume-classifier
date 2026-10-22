@@ -73,3 +73,58 @@ TRAIN_DATA_PATH=/input/resumes_demo.csv docker compose up -d --build
 и запустить `docker compose up -d --build` без `TRAIN_DATA_PATH`.
 
 Документация API — http://localhost:8000/docs, интерфейс MLflow — http://127.0.0.1:5050.
+
+
+## Демонстрация версий датасета, моделей и метрик
+
+Для демонстрации MLOps-пайплайна один исходный `cv_target.csv` можно превратить в две
+воспроизводимые версии обучающего набора:
+
+- **v1** — полный train split;
+- **v2** — стратифицированные 10% от того же train split;
+- validation и test для v1/v2 одинаковые.
+
+Это позволяет сравнить две версии модели на одной и той же тестовой выборке и показать влияние
+объёма обучающих данных без искусственного изменения правильных меток.
+
+Сначала создаются файлы `data/evaluation/*.csv`:
+
+```powershell
+uv run python scripts/build_evaluation_datasets.py
+```
+
+Затем модели обучаются с разными alias:
+
+```powershell
+$env:TRAIN_SPLIT_DIR="/input/evaluation"
+$env:TRAIN_DATASET_VERSION="v1"
+$env:TRAIN_ALIAS="demo-v1"
+docker compose up --build train
+
+docker compose rm -sf train
+$env:TRAIN_DATASET_VERSION="v2"
+$env:TRAIN_ALIAS="demo-v2"
+docker compose up train
+```
+
+После этого API загружает все aliases из MLflow Model Registry. `GET /api/v1/model` показывает
+зарегистрированные версии, кандидатов, версии датасетов и validation/test metrics.
+
+`POST /process` поддерживает два режима:
+
+1. `texts` — обычный inference;
+2. `dataset` — inference по фиксированному test split с расчётом выбранных метрик.
+
+Для оценки можно выбрать не более двух метрик из `accuracy`, `balanced_accuracy`, `f1_macro` и
+`f1_weighted`. Пример:
+
+```json
+{
+  "model": "demo-v1",
+  "dataset": "v1",
+  "metrics": ["accuracy", "f1_macro"],
+  "sample_size": 5
+}
+```
+
+Документация API — http://localhost:8000/docs, интерфейс MLflow — http://127.0.0.1:5050.

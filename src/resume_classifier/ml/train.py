@@ -21,7 +21,12 @@ from sklearn.svm import LinearSVC
 from resume_classifier import __version__
 from resume_classifier.logs import configure_logging
 from resume_classifier.ml.artifacts import create_diagnostics, create_eda, quality_metrics
-from resume_classifier.ml.dataset import DatasetSplits, lineage, load_and_split
+from resume_classifier.ml.dataset import (
+    DatasetSplits,
+    lineage,
+    load_and_split,
+    load_versioned_split,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -140,6 +145,7 @@ def train_candidate(
                 "train_rows": len(splits.train),
                 "validation_rows": len(splits.validation),
                 "test_rows": len(splits.test),
+                "dataset_version": splits.dataset_version,
             }
         )
         started = time.perf_counter()
@@ -161,6 +167,27 @@ def train_candidate(
             version = str(mlflow.register_model(model_info.model_uri, model_name).version)
             client.set_model_version_tag(model_name, version, "candidate", name)
             client.set_model_version_tag(model_name, version, "dataset.sha256", splits.file_sha256)
+            client.set_model_version_tag(
+                model_name,
+                version,
+                "dataset.version",
+                splits.dataset_version,
+            )
+            client.set_model_version_tag(
+                model_name,
+                version,
+                "dataset.train_rows",
+                str(len(splits.train)),
+            )
+            client.set_model_version_tag(
+                model_name, version, "dataset.validation_rows", str(len(splits.validation))
+            )
+            client.set_model_version_tag(
+                model_name,
+                version,
+                "dataset.test_rows",
+                str(len(splits.test)),
+            )
             client.update_model_version(
                 model_name,
                 version,
@@ -204,8 +231,15 @@ def run_training(
     alias: str = "champion",
     seed: int = 42,
     source: str | None = None,
+    split_dir: Path | None = None,
+    dataset_version: str | None = None,
 ) -> dict:
-    splits = load_and_split(data, seed, source)
+    if split_dir is not None:
+        if dataset_version is None:
+            raise ValueError("--dataset-version is required with --split-dir")
+        splits = load_versioned_split(split_dir, dataset_version, seed)
+    else:
+        splits = load_and_split(data, seed, source)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment)
     datasets = tracked_datasets(splits)
@@ -215,6 +249,10 @@ def run_training(
         "dataset.parent_digest": datasets["full"].digest,
         "app.version": __version__,
         "purpose": "homework-3",
+        "dataset.version": splits.dataset_version,
+        "dataset.train_rows": str(len(splits.train)),
+        "dataset.validation_rows": str(len(splits.validation)),
+        "dataset.test_rows": str(len(splits.test)),
     }
     eda_run_id = log_eda(splits, datasets, provenance, tags)
     models = candidates(seed)
@@ -246,6 +284,7 @@ def run_training(
         "test_metrics": test_metrics,
         "runs": results,
         "dataset": {
+            "version": splits.dataset_version,
             "sha256": splits.file_sha256,
             "digest": datasets["full"].digest,
             "source": splits.source,
@@ -270,9 +309,11 @@ def main() -> None:
     )
     parser.add_argument("--experiment", default="resume-classifier-hw3")
     parser.add_argument("--model-name", default="resume-classifier")
-    parser.add_argument("--alias", default="champion")
+    parser.add_argument("--alias", default=os.getenv("TRAIN_ALIAS", "champion"))
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--source", help="Stable original CSV URI for dataset provenance")
+    parser.add_argument("--split-dir", type=Path, default=os.getenv("TRAIN_SPLIT_DIR") or None)
+    parser.add_argument("--dataset-version", default=os.getenv("TRAIN_DATASET_VERSION"))
     args = parser.parse_args()
     configure_logging("INFO", json_logs=True)
     summary = run_training(
@@ -283,6 +324,8 @@ def main() -> None:
         args.alias,
         args.seed,
         args.source,
+        args.split_dir,
+        args.dataset_version,
     )
     logger.info(
         "training_finished",
