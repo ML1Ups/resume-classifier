@@ -51,12 +51,12 @@ def model() -> LoadedModel:
 
 @pytest.fixture(autouse=True)
 def loaded_model(monkeypatch: pytest.MonkeyPatch, model: LoadedModel) -> None:
-    monkeypatch.setattr(main, "load_model", lambda settings: model)
+    monkeypatch.setattr(main, "load_models", lambda settings: {"champion": model})
 
 
 @pytest.fixture
 def missing_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "load_model", lambda settings: None)
+    monkeypatch.setattr(main, "load_models", lambda settings: {})
 
 
 @pytest.fixture
