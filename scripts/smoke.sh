@@ -11,6 +11,12 @@ export POSTGRES_PORT=55432
 export MLFLOW_PORT=15000
 export MLFLOW_DB_PASSWORD=smoke
 export TRAIN_DATA_PATH=/input/resumes_demo.csv
+export RABBITMQ_USER=smoke
+export RABBITMQ_PASSWORD=smoke
+export RABBITMQ_PORT=55672
+export RABBITMQ_UI_PORT=25672
+export QUEUE_MAX_LENGTH=2
+export INFERENCE_SECONDS=0.1
 
 compose() {
   docker compose --project-name resume-classifier-smoke "$@"
@@ -55,29 +61,49 @@ check /api/v1/model 200 '"alias":"champion"'
 curl -fsS "http://127.0.0.1:${MLFLOW_PORT}/health" >/dev/null || fail "MLflow is unreachable"
 echo "OK   MLflow is reachable"
 
-response=$(curl -sS -X POST "http://127.0.0.1:${APP_PORT}/process" \
-  -H 'Content-Type: application/json' \
-  -d '{"texts":["Python FastAPI PostgreSQL API"]}') || fail "/process is unreachable"
-[[ $response == *'"predictions":[{"index":0,"category":"'* ]] \
-  || fail "/process returned unexpected body: $response"
-echo "OK   POST /process -> $response"
-
-loaded_version() {
-  curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/process" \
-    -H 'Content-Type: application/json' -d '{"texts":["Python"]}' \
-    | python3 -c 'import json, sys; print(json.load(sys.stdin)["model"]["version"])'
+submit() {
+  curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${APP_PORT}/api/v1/tasks" \
+    -H 'Content-Type: application/json' -d '{"text":"Python FastAPI PostgreSQL API"}'
 }
 
-old_version=$(loaded_version)
+processed_version() {
+  local task_id status
+  task_id=$(curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/api/v1/tasks" \
+    -H 'Content-Type: application/json' -d '{"text":"Python FastAPI PostgreSQL API"}' \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])') || fail "task was not accepted"
+  for _ in $(seq 1 60); do
+    status=$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/tasks/${task_id}")
+    if [[ $status == *'"status":"DONE"'* ]]; then
+      python3 -c 'import json, sys; print(json.loads(sys.argv[1])["model_version"])' "$status"
+      return
+    fi
+    sleep 0.5
+  done
+  fail "task ${task_id} was not processed: $status"
+}
+
+old_version=$(processed_version)
+echo "OK   task processed by worker with model version ${old_version}"
+
 new_version=$((old_version % 3 + 1))
-compose exec -T app python -m resume_classifier.ml.registry --version "$new_version" >/dev/null \
-  || fail "champion alias was not moved"
-[[ $(loaded_version) == "$old_version" ]] || fail "model changed without restart"
-echo "OK   loaded model stays version ${old_version} until restart"
-compose restart app >/dev/null
-compose up -d --no-deps --wait --wait-timeout 60 app || fail "app did not restart"
-[[ $(loaded_version) == "$new_version" ]] || fail "model version ${new_version} was not loaded"
-echo "OK   loaded model is version ${new_version} after restart"
+compose exec -T worker python -m resume_classifier.ml.registry --version "$new_version" \
+  >/dev/null || fail "champion alias was not moved"
+[[ $(processed_version) == "$old_version" ]] || fail "worker changed model without restart"
+echo "OK   worker keeps model version ${old_version} until restart"
+compose restart worker >/dev/null
+compose up -d --no-deps --wait --wait-timeout 120 worker || fail "worker did not restart"
+[[ $(processed_version) == "$new_version" ]] || fail "worker did not load version ${new_version}"
+echo "OK   worker loads model version ${new_version} after restart"
+
+compose stop worker >/dev/null
+codes=$(for _ in 1 2 3 4; do submit; echo; done | tr '\n' ' ')
+[[ $codes == *503* ]] || fail "full queue did not return 503: $codes"
+retry_after=$(curl -sS -D - -o /dev/null -X POST "http://127.0.0.1:${APP_PORT}/api/v1/tasks" \
+  -H 'Content-Type: application/json' -d '{"text":"Python"}' | tr -d '\r' \
+  | awk -F': ' 'tolower($1) == "retry-after" {print $2}')
+[[ -n $retry_after ]] || fail "503 without Retry-After"
+echo "OK   full queue -> ${codes}with Retry-After: ${retry_after}"
+compose start worker >/dev/null
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'

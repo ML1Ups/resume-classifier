@@ -5,13 +5,17 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import asyncpg
 import pytest
 import structlog
+from fastapi import FastAPI
+from faststream.rabbit import TestRabbitBroker
 from httpx import ASGITransport, AsyncClient
 from sklearn.dummy import DummyClassifier
 
 from resume_classifier import main
 from resume_classifier.config import Settings
+from resume_classifier.db import create_pool, create_schema
 from resume_classifier.main import create_app
 from resume_classifier.model import LoadedModel
 from resume_classifier.schemas import ModelInfo
@@ -21,10 +25,10 @@ DEMO = ROOT / "data/resumes_demo.csv"
 
 
 @asynccontextmanager
-async def running_client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    app = create_app(settings)
+async def running_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with (
+        TestRabbitBroker(app.state.broker),
         app.router.lifespan_context(app),
         AsyncClient(transport=transport, base_url="http://test") as client,
     ):
@@ -68,15 +72,30 @@ def unreachable_settings(settings: Settings) -> Settings:
 
 
 @pytest.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    async with running_client(settings) as client:
+def app(settings: Settings) -> FastAPI:
+    return create_app(settings)
+
+
+@pytest.fixture
+async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+    async with running_client(app) as client:
         yield client
 
 
 @pytest.fixture
 async def unreachable_client(unreachable_settings: Settings) -> AsyncIterator[AsyncClient]:
-    async with running_client(unreachable_settings) as client:
+    async with running_client(create_app(unreachable_settings)) as client:
         yield client
+
+
+@pytest.fixture
+async def pool(settings: Settings) -> AsyncIterator[asyncpg.Pool]:
+    pool = await create_pool(settings)
+    await create_schema(pool)
+    yield pool
+    async with pool.acquire() as connection:
+        await connection.execute("TRUNCATE tasks")
+    await pool.close()
 
 
 @pytest.fixture

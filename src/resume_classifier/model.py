@@ -11,7 +11,7 @@ from mlflow.exceptions import MlflowException
 from sklearn.pipeline import Pipeline
 
 from resume_classifier.config import Settings
-from resume_classifier.schemas import ModelInfo, Prediction
+from resume_classifier.schemas import ModelInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -91,8 +91,3 @@ def list_models(settings: Settings) -> list[ModelInfo]:
 
 def predict_labels(model: LoadedModel, texts: list[str]) -> np.ndarray:
     return model.pipeline.predict(pd.DataFrame({"text": texts}))
-
-
-def predict(model: LoadedModel, texts: list[str]) -> list[Prediction]:
-    labels = predict_labels(model, texts)
-    return [Prediction(index=index, category=str(label)) for index, label in enumerate(labels)]

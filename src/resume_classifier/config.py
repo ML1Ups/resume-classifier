@@ -1,3 +1,4 @@
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,18 @@ class Settings(BaseSettings):
     mlflow_model_name: str = "resume-classifier"
     mlflow_model_alias: str = "champion"
     evaluation_data_dir: Path = Path("data/evaluation")
+
+    rabbitmq_url: SecretStr
+    tasks_queue: str = "tasks"
+    queue_max_length: int = Field(default=100, ge=0)
+    delivery_limit: int = Field(default=3, ge=1)
+    worker_threads: int = Field(default=4, ge=1)
+    worker_prefetch: int = Field(default=4, ge=0)
+    inference_seconds: float = Field(default=0.5, ge=0)
+
+    @property
+    def retry_after_seconds(self) -> int:
+        return math.ceil(self.queue_max_length * self.inference_seconds / self.worker_threads)
 
 
 @lru_cache

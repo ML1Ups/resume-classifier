@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from faststream.rabbit import TestRabbitBroker
 from mlflow.exceptions import MlflowException
 
 from resume_classifier import model as module
@@ -90,5 +91,5 @@ async def test_startup_keeps_loaded_models_in_app_state(
 ) -> None:
     app = create_app(settings)
 
-    async with app.router.lifespan_context(app):
+    async with TestRabbitBroker(app.state.broker), app.router.lifespan_context(app):
         assert app.state.models == {"champion": model}
