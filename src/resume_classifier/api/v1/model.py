@@ -1,14 +1,24 @@
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, Request, status
+from mlflow.exceptions import MlflowException
+from starlette.concurrency import run_in_threadpool
 
-from fastapi import APIRouter, Depends
-
-from resume_classifier.api.process import MODEL_NOT_LOADED, loaded_model
-from resume_classifier.model import LoadedModel
-from resume_classifier.schemas import ModelInfo
+from resume_classifier.model import list_models
+from resume_classifier.schemas import ModelListResponse
 
 router = APIRouter(tags=["inference"])
 
 
-@router.get("/model", responses=MODEL_NOT_LOADED)
-async def model_info(model: Annotated[LoadedModel, Depends(loaded_model)]) -> ModelInfo:
-    return model.info
+REGISTRY_UNAVAILABLE = "Model Registry is unavailable"
+
+
+@router.get(
+    "/model",
+    responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"description": REGISTRY_UNAVAILABLE}},
+)
+async def registered_models(request: Request) -> ModelListResponse:
+    settings = request.app.state.settings
+    try:
+        models = await run_in_threadpool(list_models, settings)
+    except (MlflowException, OSError) as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, REGISTRY_UNAVAILABLE) from exc
+    return ModelListResponse(name=settings.mlflow_model_name, models=models)

@@ -8,20 +8,31 @@ from resume_classifier.schemas import ProcessRequest, ProcessResponse
 
 router = APIRouter(tags=["inference"])
 
-MODEL_NOT_LOADED = {status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Model is not loaded"}}
+
+def loaded_models(request: Request) -> dict[str, LoadedModel]:
+    models: dict[str, LoadedModel] = request.app.state.models
+    if not models:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="No models are loaded")
+    return models
 
 
-def loaded_model(request: Request) -> LoadedModel:
-    model: LoadedModel | None = request.app.state.model
-    if model is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Model is not loaded")
-    return model
-
-
-@router.post("/process", responses=MODEL_NOT_LOADED)
+@router.post(
+    "/process",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Model alias is not loaded"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "No models are loaded"},
+    },
+)
 async def process(
     payload: ProcessRequest,
-    model: Annotated[LoadedModel, Depends(loaded_model)],
+    models: Annotated[dict[str, LoadedModel], Depends(loaded_models)],
 ) -> ProcessResponse:
+    if payload.model not in models:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"Model alias '{payload.model}' is not loaded. "
+            f"Available aliases: {', '.join(sorted(models))}",
+        )
+    model = models[payload.model]
     predictions = await run_in_threadpool(predict, model, payload.texts)
     return ProcessResponse(predictions=predictions, model=model.info)
