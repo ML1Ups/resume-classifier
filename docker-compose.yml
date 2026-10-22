@@ -6,28 +6,37 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+x-pipeline-env: &pipeline-env
+  POSTGRES_HOST: db
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  RABBITMQ_URL: amqp://${RABBITMQ_USER:?RABBITMQ_USER is required}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/
+  QUEUE_MAX_LENGTH: ${QUEUE_MAX_LENGTH:-100}
+  DELIVERY_LIMIT: ${DELIVERY_LIMIT:-3}
+  WORKER_THREADS: ${WORKER_THREADS:-4}
+  WORKER_PREFETCH: ${WORKER_PREFETCH:-4}
+  INFERENCE_SECONDS: ${INFERENCE_SECONDS:-0.5}
+
 services:
   app:
     build: .
     image: resume-classifier:local
     environment:
-      POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      MLFLOW_TRACKING_URI: http://mlflow:5000
+      <<: *pipeline-env
       EVALUATION_DATA_DIR: /input/evaluation
     volumes:
       - ./data/evaluation:/input/evaluation:ro
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
-      db:
+      rabbitmq:
         condition: service_healthy
-      train:
-        condition: service_completed_successfully
+      worker:
+        condition: service_healthy
     networks:
       - backend
     restart: unless-stopped
@@ -36,6 +45,61 @@ services:
         limits:
           cpus: "1.0"
           memory: 512M
+    logging: *default-logging
+
+  worker:
+    build: .
+    image: resume-classifier:local
+    command: ["uvicorn", "resume_classifier.worker:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *pipeline-env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      train:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging: *default-logging
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
     logging: *default-logging
 
   db:
@@ -156,6 +220,7 @@ volumes:
   pgdata:
   mlflow-pgdata:
   mlflow-artifacts:
+  rabbitmq-data:
 
 networks:
   backend:
