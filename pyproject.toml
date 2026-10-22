@@ -1,6 +1,6 @@
 [project]
 name = "resume-classifier"
-version = "0.3.0"
+version = "0.4.0"
 description = "MLOps-сервис классификации резюме соискателей по профессиональным направлениям"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -68,6 +68,7 @@ select = [
 "tests/**" = ["S101"]
 "scripts/generate_demo_data.py" = ["RUF001", "S311"]
 "src/resume_classifier/ml/registry.py" = ["T201"]
+"scripts/experiment.py" = ["S603", "S607", "T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
