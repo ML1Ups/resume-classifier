@@ -45,3 +45,30 @@ seed 42. В одну группу попадают все резюме одно�
 ```bash
 TRAIN_DATA_PATH=/input/resumes_demo.csv docker compose up -d --build
 ```
+
+## Версии датасета: `v1` и `v2`
+
+Из `cv_target.csv` собираются две версии с одинаковыми validation и test:
+
+- `v1` — весь train (16 332 резюме);
+- `v2` — стратифицированные 10% того же train.
+
+Поэтому разница между моделями `v1` и `v2` показывает влияние объёма обучающих данных, а не другой
+тестовой выборки.
+
+```bash
+uv run python scripts/build_evaluation_datasets.py
+```
+
+В `data/evaluation/` появляются `full.csv`, `v1_train.csv`, `v1_validation.csv`, `v1_test.csv`,
+такие же три файла для `v2` и `manifest.json` с источником, SHA-256 и размерами частей.
+
+Обучение на версии и регистрация под своим alias:
+
+```bash
+TRAIN_DATASET_VERSION=v1 TRAIN_ALIAS=demo-v1 docker compose up train
+TRAIN_DATASET_VERSION=v2 TRAIN_ALIAS=demo-v2 docker compose up train
+docker compose restart app
+```
+
+После перезапуска приложение загружает модели всех alias реестра.
