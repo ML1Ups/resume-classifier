@@ -5,7 +5,6 @@ import pytest
 from httpx import AsyncClient
 from mlflow.exceptions import MlflowException
 
-from resume_classifier import main
 from resume_classifier.api.v1 import model as model_endpoint
 from resume_classifier.config import Settings
 from resume_classifier.model import LoadedModel
@@ -25,83 +24,16 @@ def evaluation_dir(tmp_path: Path, settings: Settings) -> Path:
     return tmp_path
 
 
-async def test_process_batch_preserves_order_and_reports_version(client: AsyncClient) -> None:
-    response = await client.post("/process", json={"texts": ["Python FastAPI", "SQL PostgreSQL"]})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["predictions"] == [
-        {"index": 0, "category": "backend", "expected": None},
-        {"index": 1, "category": "backend", "expected": None},
-    ]
-    assert body["model"]["alias"] == "champion"
-    assert body["model"]["version"] == "1"
-    assert body["model"]["run_id"] == "unit-run"
-    assert body["model"]["model_uri"] == "models:/resume-classifier/1"
-    assert body["dataset"] is None
-    assert body["metrics"] == {}
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {},
-        {"texts": []},
-        {"texts": ["   "]},
-        {"texts": [42]},
-        {"texts": ["x" * 20001]},
-        {"texts": ["a"] * 33},
-        {"texts": ["a"], "unexpected": True},
-        {"texts": ["a"], "dataset": "v1"},
-        {"dataset": "../v1"},
-        {"dataset": "v1", "metrics": []},
-        {"dataset": "v1", "metrics": ["accuracy", "f1_macro", "f1_weighted"]},
-        {"dataset": "v1", "metrics": ["accuracy", "accuracy"]},
-        {"dataset": "v1", "metrics": ["recall"]},
-        {"dataset": "v1", "sample_size": 21},
-    ],
-)
-async def test_process_rejects_invalid_payloads(
-    client: AsyncClient,
-    payload: dict[str, object],
-) -> None:
-    response = await client.post("/process", json=payload)
-
-    assert response.status_code == 422
-
-
-async def test_process_rejects_unknown_model_alias(client: AsyncClient) -> None:
-    response = await client.post("/process", json={"model": "missing", "texts": ["Python"]})
-
-    assert response.status_code == 404
-    assert response.json() == {
-        "detail": "Model alias 'missing' is not loaded. Available aliases: champion"
-    }
-
-
-async def test_process_uses_models_loaded_at_startup(
-    client: AsyncClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def unexpected_load(settings: Settings) -> dict[str, LoadedModel]:
-        raise AssertionError("Request must not reload models")
-
-    monkeypatch.setattr(main, "load_models", unexpected_load)
-
-    for _ in range(3):
-        response = await client.post("/process", json={"texts": ["Python"]})
-        assert response.status_code == 200
-
-
 @pytest.mark.usefixtures("evaluation_dir")
-async def test_process_evaluates_dataset_with_selected_metrics(client: AsyncClient) -> None:
+async def test_evaluation_reports_selected_metrics_and_sample(client: AsyncClient) -> None:
     response = await client.post(
-        "/process",
+        "/api/v1/evaluations",
         json={"dataset": "v1", "metrics": ["accuracy", "f1_weighted"], "sample_size": 2},
     )
 
     assert response.status_code == 200
     body = response.json()
+    assert body["model"]["alias"] == "champion"
     assert body["dataset"] == {"version": "v1", "rows": 3}
     assert set(body["metrics"]) == {"accuracy", "f1_weighted"}
     assert body["metrics"]["accuracy"] == pytest.approx(2 / 3)
@@ -111,12 +43,47 @@ async def test_process_evaluates_dataset_with_selected_metrics(client: AsyncClie
     ]
 
 
-@pytest.mark.usefixtures("evaluation_dir")
-async def test_process_rejects_unknown_dataset_version(client: AsyncClient) -> None:
-    response = await client.post("/process", json={"dataset": "v9"})
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"dataset": "../v1"},
+        {"dataset": "v1", "metrics": []},
+        {"dataset": "v1", "metrics": ["accuracy", "f1_macro", "f1_weighted"]},
+        {"dataset": "v1", "metrics": ["accuracy", "accuracy"]},
+        {"dataset": "v1", "metrics": ["recall"]},
+        {"dataset": "v1", "sample_size": 21},
+        {"dataset": "v1", "unexpected": True},
+    ],
+)
+async def test_evaluation_rejects_invalid_payloads(
+    client: AsyncClient,
+    payload: dict[str, object],
+) -> None:
+    response = await client.post("/api/v1/evaluations", json=payload)
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Dataset version 'v9' is not found"}
+    assert response.status_code == 422
+
+
+@pytest.mark.usefixtures("evaluation_dir")
+async def test_evaluation_rejects_unknown_dataset_and_model(client: AsyncClient) -> None:
+    dataset = await client.post("/api/v1/evaluations", json={"dataset": "v9"})
+    model = await client.post("/api/v1/evaluations", json={"dataset": "v1", "model": "missing"})
+
+    assert dataset.status_code == 404
+    assert dataset.json() == {"detail": "Dataset version 'v9' is not found"}
+    assert model.status_code == 404
+    assert model.json() == {
+        "detail": "Model alias 'missing' is not loaded. Available aliases: champion"
+    }
+
+
+@pytest.mark.usefixtures("missing_model")
+async def test_evaluation_returns_503_without_models(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/evaluations", json={"dataset": "v1"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "No models are loaded"}
 
 
 async def test_model_endpoint_lists_registered_versions(
@@ -159,14 +126,6 @@ async def test_model_endpoint_returns_503_when_registry_is_unavailable(
 
     assert response.status_code == 503
     assert response.json() == {"detail": "Model Registry is unavailable"}
-
-
-@pytest.mark.usefixtures("missing_model")
-async def test_process_returns_503_without_models(client: AsyncClient) -> None:
-    response = await client.post("/process", json={"texts": ["Python"]})
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": "No models are loaded"}
 
 
 @pytest.mark.usefixtures("missing_model")
