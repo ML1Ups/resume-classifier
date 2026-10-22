@@ -3,7 +3,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from resume_classifier.ml.dataset import lineage, load_and_split
+from resume_classifier.ml.dataset import (
+    lineage,
+    load_and_split,
+    load_evaluation_test,
+    load_versioned_split,
+)
 
 DEMO = Path(__file__).resolve().parents[1] / "data/resumes_demo.csv"
 
@@ -46,3 +51,20 @@ def test_invalid_datasets_fail_before_training(
     frame.to_csv(path, index=False)
     with pytest.raises(ValueError, match=message):
         load_and_split(path)
+
+
+def test_dataset_versions_share_validation_and_test(demo_versions: Path) -> None:
+    v1 = load_versioned_split(demo_versions, "v1")
+    v2 = load_versioned_split(demo_versions, "v2")
+    source = load_and_split(DEMO)
+
+    assert (len(v1.train), len(v2.train)) == (144, 14)
+    assert set(v2.train.record_id) <= set(v1.train.record_id)
+    assert v1.validation.equals(v2.validation)
+    assert v1.test.equals(load_evaluation_test(demo_versions, "v2"))
+    assert v2.file_sha256 == source.file_sha256
+    assert v2.dataset_version == "v2"
+    assert v2.seed == 42
+    provenance = lineage(v2, dict.fromkeys(["full", "train", "validation", "test"], "digest"))
+    assert provenance["dataset_version"] == "v2"
+    assert provenance["split"]["train_fraction"] == 14 / 240

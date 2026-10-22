@@ -52,6 +52,34 @@ def test_training_tracks_lineage_logs_models_and_selects_on_validation(tmp_path:
         mlflow.set_registry_uri(previous_registry)
 
 
+def test_training_on_dataset_version_tags_registered_models(
+    tmp_path: Path, demo_versions: Path
+) -> None:
+    uri = f"sqlite:///{tmp_path / 'tracking.db'}"
+    previous_tracking = mlflow.get_tracking_uri()
+    previous_registry = mlflow.get_registry_uri()
+    mlflow.set_tracking_uri(uri)
+    mlflow.set_registry_uri(uri)
+    mlflow.create_experiment("versions-test", artifact_location=(tmp_path / "artifacts").as_uri())
+    try:
+        run_training(
+            DEMO,
+            uri,
+            experiment="versions-test",
+            alias="demo-v2",
+            split_dir=demo_versions,
+            dataset_version="v2",
+        )
+        client = MlflowClient(tracking_uri=uri)
+        selected = client.get_model_version_by_alias("resume-classifier", "demo-v2")
+        assert selected.tags["dataset.version"] == "v2"
+        assert selected.tags["dataset.train_rows"] == "14"
+        assert selected.tags["dataset.test_rows"] == "48"
+    finally:
+        mlflow.set_tracking_uri(previous_tracking)
+        mlflow.set_registry_uri(previous_registry)
+
+
 @pytest.mark.usefixtures("restore_logging")
 def test_training_cli_passes_explicit_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     import resume_classifier.ml.train as module
