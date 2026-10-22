@@ -18,6 +18,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      EVALUATION_DATA_DIR: /input/evaluation
+    volumes:
+      - ./data/evaluation:/input/evaluation:ro
     ports:
       - "${APP_PORT:-8000}:8000"
     depends_on:
