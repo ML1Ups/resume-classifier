@@ -7,23 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    accuracy_score,
-    balanced_accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-)
-
-
-def quality_metrics(expected: pd.Series, predicted: np.ndarray) -> dict[str, float]:
-    return {
-        "accuracy": float(accuracy_score(expected, predicted)),
-        "balanced_accuracy": float(balanced_accuracy_score(expected, predicted)),
-        "f1_macro": float(f1_score(expected, predicted, average="macro", zero_division=0)),
-        "f1_weighted": float(f1_score(expected, predicted, average="weighted", zero_division=0)),
-    }
+from sklearn.metrics import ConfusionMatrixDisplay, classification_report, confusion_matrix
 
 
 def create_eda(train: pd.DataFrame, output: Path, preparation: dict | None = None) -> dict:
