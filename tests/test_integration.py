@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from aiormq.exceptions import DeliveryError
 from faststream import AckPolicy
 from faststream.exceptions import RejectMessage
 from faststream.rabbit import RabbitBroker
@@ -18,12 +19,22 @@ from resume_classifier.config import Settings
 from resume_classifier.main import create_app
 from resume_classifier.queues import DEAD_LETTER_QUEUE, declare_queues, tasks_queue
 from resume_classifier.schemas import TaskMessage
+from resume_classifier.source import publish_until_accepted
 
 RABBITMQ_IMAGE = "rabbitmq:4.3-management-alpine"
 
 
 def new_task() -> TaskMessage:
     return TaskMessage(id=uuid4(), text="Python", model="champion", created_at=datetime.now(UTC))
+
+
+async def publish_until_rejected(broker: RabbitBroker, queue: str) -> int:
+    for accepted in range(10):
+        try:
+            await broker.publish(new_task(), queue=queue, persist=True)
+        except DeliveryError:
+            return accepted
+    return 10
 
 
 def retry_gaps(moments: list[float]) -> list[float]:
@@ -46,6 +57,26 @@ def bounded(settings: Settings, rabbitmq_url: str) -> Settings:
             "queue_max_length": 3,
         }
     )
+
+
+async def test_full_queue_rejects_publishes_and_source_waits_for_free_space(
+    bounded: Settings,
+) -> None:
+    async with RabbitBroker(bounded.rabbitmq_url.get_secret_value(), logger=None) as broker:
+        await declare_queues(broker, bounded)
+        accepted = await publish_until_rejected(broker, bounded.tasks_queue)
+        assert bounded.queue_max_length <= accepted <= bounded.queue_max_length + 1
+
+        waiting = asyncio.create_task(
+            publish_until_accepted(broker, new_task(), bounded.tasks_queue)
+        )
+        await asyncio.sleep(1)
+        assert not waiting.done()
+
+        queue = await broker.declare_queue(tasks_queue(bounded))
+        for _ in range(2):
+            await queue.get(no_ack=True)
+        assert await asyncio.wait_for(waiting, timeout=10) > 0
 
 
 async def test_api_sheds_load_with_503_and_keeps_no_pending_tasks(
