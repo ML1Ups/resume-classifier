@@ -48,6 +48,12 @@ MLOps-система классификации резюме соискател�
 | [`feature/mlflow-server`](../../tree/feature/mlflow-server) | MLflow Tracking Server с отдельными Backend Store и Artifact Store | [#18](../../pull/18) |
 | [`feature/ml-training`](../../tree/feature/ml-training) | EDA, эксперименты, метрики, реестр моделей и alias `champion` | [#19](../../pull/19) |
 | [`feature/process`](../../tree/feature/process) | загрузка модели из реестра, `POST /process`, релиз 0.2.0 | [#20](../../pull/20) |
+| [`feature/dataset-versions`](../../tree/feature/dataset-versions) | версии датасета v1 и v2, обучение на версии под своим alias | [#23](../../pull/23) |
+| [`feature/model-aliases`](../../tree/feature/model-aliases) | модели всех alias при старте, выбор модели в запросе, список версий | [#24](../../pull/24) |
+| [`feature/evaluation`](../../tree/feature/evaluation) | метрики модели на test выбранной версии датасета, релиз 0.3.0 | [#26](../../pull/26) |
+| [`feature/task-queue`](../../tree/feature/task-queue) | RabbitMQ, воркер на FastStream, `POST /api/v1/tasks`, DLQ, 503 при перегрузке | [#27](../../pull/27) |
+| [`feature/source`](../../tree/feature/source) | источник задач, который замедляется по сигналу брокера | [#28](../../pull/28) |
+| [`feature/experiment`](../../tree/feature/experiment) | эксперимент с ограничением нагрузки и без, релиз 0.4.0 | [#29](../../pull/29) |
 
 ## Как ведётся разработка
 
@@ -68,8 +74,58 @@ cp .env.example .env
 TRAIN_DATA_PATH=/input/resumes_demo.csv docker compose up -d --build
 ```
 
-Команда поднимает сервис, PostgreSQL и MLflow, обучает модели на учебном наборе и загружает
-лучшую в сервис. Для обучения на настоящих данных файл нужно положить в `data/cv_target.csv`
-и запустить `docker compose up -d --build` без `TRAIN_DATA_PATH`.
+Команда поднимает API, воркер, RabbitMQ, PostgreSQL и MLflow, обучает модели на учебном наборе
+и загружает их в воркер. Для обучения на настоящих данных файл нужно положить в
+`data/cv_target.csv` и запустить `docker compose up -d --build` без `TRAIN_DATA_PATH`.
 
-Документация API — http://localhost:8000/docs, интерфейс MLflow — http://127.0.0.1:5050.
+Классификация резюме идёт через очередь:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/tasks -H 'Content-Type: application/json' -d '{"text": "Python, FastAPI, PostgreSQL"}'
+curl http://localhost:8000/api/v1/tasks/<id>
+```
+
+Нагрузочный сценарий — пакетный скоринг файла (нужен `data/evaluation/full.csv`, см.
+[`data/README.md`](data/README.md)):
+
+```bash
+docker compose --profile load up -d source
+```
+
+Документация API — http://localhost:8000/docs, интерфейс MLflow — http://127.0.0.1:5050,
+веб-интерфейс RabbitMQ — http://127.0.0.1:15672.
+
+## Противодавление
+
+Задачи идут по цепочке «источник или API → очередь RabbitMQ на 100 задач → воркеры → PostgreSQL».
+Как устроен каждый механизм и почему выбран именно он — в README веток
+[`feature/task-queue`](../../tree/feature/task-queue) и [`feature/source`](../../tree/feature/source).
+
+- **Брокер → воркер:** `prefetch_count` = 4 = размер пула потоков воркера, inference идёт в пуле и
+  не блокирует event loop.
+- **Воркер → источник:** очередь ограничена, при заполнении брокер отклоняет публикацию
+  (publisher confirms + `x-overflow: reject-publish`), источник ждёт с растущей паузой и повторяет.
+- **Граница системы:** клиента API замедлить нельзя, поэтому при полной очереди он сразу получает
+  `503` и `Retry-After` — это сброс нагрузки, а не противодавление.
+- **Надёжность:** ack после записи результата, 3 повтора с паузой, затем `tasks.dlq`;
+  идемпотентность по первичному ключу задачи; graceful shutdown по SIGTERM.
+
+### Эксперимент
+
+Два прогона по 3 минуты: с ограничениями и без, второй воркер подключается на 90-й секунде.
+Подробности и методика — в [`feature/experiment`](../../tree/feature/experiment).
+
+![Эксперимент](docs/experiment/experiment.png)
+
+| Показатель | С ограничениями: 1 → 2 воркера | Без ограничений: 1 → 2 воркера |
+|---|---|---|
+| Глубина очереди | 77–101 при лимите 100 | до 25 200 |
+| Скорость источника | ≈ 8 → ≈ 16 задач/с | ≈ 1650 задач/с |
+| Пропускная способность | 8 → 16 задач/с | 8 → 16 задач/с |
+| Время выполнения задачи | ≈ 12,5 → ≈ 6,3 с | растёт без предела, 175 с к концу |
+| Память RabbitMQ | ≈ 100 МБ | ≈ 165 МБ и растёт с очередью |
+
+**Выводы.** С ограничениями очередь не выходит за лимит, скорость источника сама подстраивается
+под пропускную способность воркеров, а второй воркер ускоряет и обработку, и источник без
+изменения кода. Без ограничений источник за секунды перекладывает всю работу в брокер: растут
+очередь, память брокера и время ожидания каждой задачи.
