@@ -10,7 +10,7 @@ from resume_classifier.api import healthz, process, v1
 from resume_classifier.config import Settings, get_settings
 from resume_classifier.db import create_pool
 from resume_classifier.logs import log_requests
-from resume_classifier.model import load_model
+from resume_classifier.model import load_models
 
 logger = structlog.get_logger(__name__)
 
@@ -18,8 +18,8 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_pool = await create_pool(app.state.settings)
-    app.state.model = await run_in_threadpool(load_model, app.state.settings)
-    logger.info("application_started", version=__version__)
+    app.state.models = await run_in_threadpool(load_models, app.state.settings)
+    logger.info("application_started", version=__version__, model_aliases=sorted(app.state.models))
     yield
     await app.state.db_pool.close()
     logger.info("application_stopped")

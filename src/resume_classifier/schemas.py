@@ -33,6 +33,7 @@ ResumeText = Annotated[
 class ProcessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    model: str = Field(default="champion", min_length=1, max_length=64)
     texts: list[ResumeText] = Field(min_length=1, max_length=32)
 
 
@@ -43,10 +44,20 @@ class Prediction(BaseModel):
 
 class ModelInfo(BaseModel):
     name: str
-    alias: str
+    alias: str | None
     version: str
     run_id: str | None
     model_uri: str
+    candidate: str | None = None
+    dataset_version: str | None = None
+    train_rows: int | None = None
+    validation_metrics: dict[str, float] = Field(default_factory=dict)
+    test_metrics: dict[str, float] = Field(default_factory=dict)
+
+
+class ModelListResponse(BaseModel):
+    name: str
+    models: list[ModelInfo]
 
 
 class ProcessResponse(BaseModel):
