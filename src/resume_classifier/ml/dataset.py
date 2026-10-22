@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
@@ -18,19 +19,27 @@ class DatasetSplits:
     source: str
     seed: int
     preparation: dict = field(default_factory=dict)
+    dataset_version: str = "source"
 
 
-def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> DatasetSplits:
+def file_sha256(path: Path) -> str:
     digest = sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
-    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+    return digest.hexdigest()
+
+
+def read_csv(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path, dtype=str, keep_default_na=False)
+
+
+def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> DatasetSplits:
+    digest = file_sha256(path)
+    frame = read_csv(path)
     if "professionList" in frame.columns:
         frame, preparation = prepare_cv_export(frame)
-        return split_groups(
-            frame, digest.hexdigest(), source or path.resolve().as_uri(), seed, preparation
-        )
+        return split_groups(frame, digest, source or path.resolve().as_uri(), seed, preparation)
     if not {"text", "category"}.issubset(frame.columns):
         raise ValueError("CSV must contain text and category columns")
     frame = frame[["text", "category"]].copy()
@@ -62,7 +71,7 @@ def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> Dat
         train=train.reset_index(drop=True),
         validation=validation.reset_index(drop=True),
         test=test.reset_index(drop=True),
-        file_sha256=digest.hexdigest(),
+        file_sha256=digest,
         source=source or path.resolve().as_uri(),
         seed=seed,
         preparation={
@@ -72,6 +81,29 @@ def load_and_split(path: Path, seed: int = 42, source: str | None = None) -> Dat
             "synthetic_demo": path.name == "resumes_demo.csv",
         },
     )
+
+
+def load_versioned_split(directory: Path, version: str) -> DatasetSplits:
+    manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    return DatasetSplits(
+        full=read_csv(directory / "full.csv"),
+        train=read_csv(directory / f"{version}_train.csv"),
+        validation=read_csv(directory / f"{version}_validation.csv"),
+        test=read_csv(directory / f"{version}_test.csv"),
+        file_sha256=manifest["source_sha256"],
+        source=manifest["source"],
+        seed=manifest["seed"],
+        preparation={
+            **manifest["preparation"],
+            "dataset_version": version,
+            "base_split": manifest["base_split"],
+        },
+        dataset_version=version,
+    )
+
+
+def load_evaluation_test(directory: Path, version: str) -> pd.DataFrame:
+    return read_csv(directory / f"{version}_test.csv")
 
 
 def split_groups(
@@ -115,12 +147,19 @@ def lineage(splits: DatasetSplits, digests: dict[str, str]) -> dict:
         "source": splits.source,
         "file_sha256": splits.file_sha256,
         "parent_dataset_digest": digests["full"],
+        "dataset_version": splits.dataset_version,
         "split": {
-            "strategy": "stratified_group" if "group_id" in splits.full else "stratified",
+            "strategy": splits.preparation.get(
+                "split_strategy",
+                "stratified_group" if "group_id" in splits.full else "stratified",
+            ),
             "seed": splits.seed,
-            "train_fraction": 0.6,
-            "validation_fraction": 0.2,
-            "test_fraction": 0.2,
+            "train_fraction": len(splits.train) / len(splits.full),
+            "validation_fraction": len(splits.validation) / len(splits.full),
+            "test_fraction": len(splits.test) / len(splits.full),
+            "base_train_fraction": 0.6,
+            "base_validation_fraction": 0.2,
+            "base_test_fraction": 0.2,
         },
         "preparation": splits.preparation,
         "parts": {

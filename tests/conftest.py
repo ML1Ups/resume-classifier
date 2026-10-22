@@ -1,7 +1,9 @@
 import logging
+import runpy
 import socket
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 import structlog
@@ -13,6 +15,9 @@ from resume_classifier.config import Settings
 from resume_classifier.main import create_app
 from resume_classifier.model import LoadedModel
 from resume_classifier.schemas import ModelInfo
+
+ROOT = Path(__file__).resolve().parents[1]
+DEMO = ROOT / "data/resumes_demo.csv"
 
 
 @asynccontextmanager
@@ -84,3 +89,11 @@ def restore_logging() -> Iterator[None]:
             root.removeHandler(handler)
     root.setLevel(level)
     structlog.reset_defaults()
+
+
+@pytest.fixture
+def demo_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_logging: None) -> Path:
+    output = tmp_path / "evaluation"
+    monkeypatch.setattr("sys.argv", ["build", "--source", str(DEMO), "--output", str(output)])
+    runpy.run_path(str(ROOT / "scripts/build_evaluation_datasets.py"), run_name="__main__")
+    return output
