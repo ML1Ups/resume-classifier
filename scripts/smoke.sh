@@ -62,15 +62,22 @@ response=$(curl -sS -X POST "http://127.0.0.1:${APP_PORT}/process" \
   || fail "/process returned unexpected body: $response"
 echo "OK   POST /process -> $response"
 
-old_version=$(curl -fsS "http://127.0.0.1:${APP_PORT}/api/v1/model" \
-  | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')
+loaded_version() {
+  curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/process" \
+    -H 'Content-Type: application/json' -d '{"texts":["Python"]}' \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["model"]["version"])'
+}
+
+old_version=$(loaded_version)
 new_version=$((old_version % 3 + 1))
 compose exec -T app python -m resume_classifier.ml.registry --version "$new_version" >/dev/null \
   || fail "champion alias was not moved"
-check /api/v1/model 200 "\"version\":\"${old_version}\""
+[[ $(loaded_version) == "$old_version" ]] || fail "model changed without restart"
+echo "OK   loaded model stays version ${old_version} until restart"
 compose restart app >/dev/null
 compose up -d --no-deps --wait --wait-timeout 60 app || fail "app did not restart"
-check /api/v1/model 200 "\"version\":\"${new_version}\""
+[[ $(loaded_version) == "$new_version" ]] || fail "model version ${new_version} was not loaded"
+echo "OK   loaded model is version ${new_version} after restart"
 
 compose stop db >/dev/null
 check /healthz 200 '"status":"ok"'
