@@ -1,4 +1,6 @@
+from datetime import datetime
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
@@ -31,12 +33,35 @@ ResumeText = Annotated[
 ]
 
 
-class ProcessRequest(BaseModel):
+class TaskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: ResumeText
+    model: str = Field(default="champion", min_length=1, max_length=64)
+
+
+class TaskMessage(BaseModel):
+    id: UUID
+    text: str
+    model: str
+    created_at: datetime
+
+
+class TaskResponse(BaseModel):
+    id: UUID
+    status: Literal["PENDING", "DONE"]
+    model: str
+    category: str | None
+    model_version: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
+class EvaluationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(default="champion", min_length=1, max_length=64)
-    texts: list[ResumeText] | None = Field(default=None, min_length=1, max_length=32)
-    dataset: str | None = Field(default=None, pattern=r"^v[0-9]+$")
+    dataset: str = Field(pattern=r"^v[0-9]+$")
     metrics: list[MetricName] = Field(
         default_factory=lambda: ["accuracy", "f1_macro"],
         min_length=1,
@@ -45,9 +70,7 @@ class ProcessRequest(BaseModel):
     sample_size: int = Field(default=5, ge=0, le=20)
 
     @model_validator(mode="after")
-    def validate_input_source(self) -> "ProcessRequest":
-        if (self.texts is None) == (self.dataset is None):
-            raise ValueError("Provide exactly one of 'texts' or 'dataset'")
+    def validate_metrics(self) -> "EvaluationRequest":
         if len(set(self.metrics)) != len(self.metrics):
             raise ValueError("Metrics must be unique")
         return self
@@ -56,7 +79,7 @@ class ProcessRequest(BaseModel):
 class Prediction(BaseModel):
     index: int
     category: str
-    expected: str | None = None
+    expected: str
 
 
 class ModelInfo(BaseModel):
@@ -82,8 +105,8 @@ class DatasetInfo(BaseModel):
     rows: int
 
 
-class ProcessResponse(BaseModel):
-    predictions: list[Prediction]
+class EvaluationResponse(BaseModel):
     model: ModelInfo
-    dataset: DatasetInfo | None = None
-    metrics: dict[str, float] = Field(default_factory=dict)
+    dataset: DatasetInfo
+    metrics: dict[str, float]
+    predictions: list[Prediction]
