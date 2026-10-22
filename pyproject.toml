@@ -68,6 +68,7 @@ select = [
 "tests/**" = ["S101"]
 "scripts/generate_demo_data.py" = ["RUF001", "S311"]
 "src/resume_classifier/ml/registry.py" = ["T201"]
+"scripts/experiment.py" = ["S603", "S607", "T201"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
