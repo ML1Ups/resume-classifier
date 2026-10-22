@@ -76,6 +76,29 @@ services:
           memory: 512M
     logging: *default-logging
 
+  source:
+    build: .
+    image: resume-classifier:local
+    profiles: ["load"]
+    command: ["python", "-m", "resume_classifier.source", "--data", "${SOURCE_DATA_PATH:-/input/evaluation/full.csv}"]
+    environment: *pipeline-env
+    volumes:
+      - ./data:/input:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    logging: *default-logging
+
   rabbitmq:
     image: rabbitmq:4.3-management-alpine
     environment:
